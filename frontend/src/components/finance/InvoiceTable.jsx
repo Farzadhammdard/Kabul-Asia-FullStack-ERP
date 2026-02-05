@@ -1,12 +1,15 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   getInvoices,
+  getInvoice,
   createInvoice,
   updateInvoice,
   deleteInvoice,
   getServices,
 } from "@/lib/api";
+import { formatPersianDate } from "@/lib/date";
 
 const DEFAULT_ITEM = { service: "", quantity: 1, price: "" };
 
@@ -29,8 +32,11 @@ export default function InvoiceManager() {
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const searchParams = useSearchParams();
 
   const [form, setForm] = useState({
     customer_name: "",
@@ -45,6 +51,7 @@ export default function InvoiceManager() {
   async function load() {
     setLoading(true);
     setError("");
+    setSuccess("");
     try {
       const token = getToken();
       if (!token) {
@@ -57,7 +64,12 @@ export default function InvoiceManager() {
         getServices(token),
       ]);
       setInvoices(data);
-      setServices(svc);
+      const uniq = new Map();
+      svc.forEach((s) => {
+        const key = String(s.name || "").trim().toLowerCase();
+        if (!uniq.has(key)) uniq.set(key, s);
+      });
+      setServices([...uniq.values()]);
     } catch (e) {
       setError("خطا در دریافت فاکتورها");
     } finally {
@@ -107,21 +119,26 @@ export default function InvoiceManager() {
     setForm({ customer_name: "", items: [{ ...DEFAULT_ITEM }] });
   }
 
+  async function buildPayload() {
+    return {
+      customer_name: form.customer_name,
+      items: form.items
+        .filter((i) => i.service && i.quantity)
+        .map((i) => ({
+          service: Number(i.service),
+          quantity: Number(i.quantity),
+          price: Number(i.price || serviceMap.get(String(i.service))?.price || 0),
+        })),
+    };
+  }
+
   async function onCreate(e) {
     e.preventDefault();
     setSaving(true);
     setError("");
+    setSuccess("");
     try {
-      const payload = {
-        customer_name: form.customer_name,
-        items: form.items
-          .filter((i) => i.service && i.quantity)
-          .map((i) => ({
-            service: Number(i.service),
-            quantity: Number(i.quantity),
-            price: Number(i.price || serviceMap.get(String(i.service))?.price || 0),
-          })),
-      };
+      const payload = await buildPayload();
       const token = getToken();
       if (!token) {
         setError("ابتدا وارد شوید");
@@ -129,6 +146,7 @@ export default function InvoiceManager() {
       }
       await createInvoice(payload, token);
       resetForm();
+      setSuccess("فاکتور با موفقیت ثبت شد.");
       load();
     } catch (e) {
       setError("ایجاد فاکتور ناموفق بود");
@@ -142,24 +160,17 @@ export default function InvoiceManager() {
     if (!editingId) return;
     setSaving(true);
     setError("");
+    setSuccess("");
     try {
       const token = getToken();
       if (!token) {
         setError("ابتدا وارد شوید");
         return;
       }
-      const payload = {
-        customer_name: form.customer_name,
-        items: form.items
-          .filter((i) => i.service && i.quantity)
-          .map((i) => ({
-            service: Number(i.service),
-            quantity: Number(i.quantity),
-            price: Number(i.price || serviceMap.get(String(i.service))?.price || 0),
-          })),
-      };
+      const payload = await buildPayload();
       await updateInvoice(editingId, payload, token);
       resetForm();
+      setSuccess("فاکتور با موفقیت ویرایش شد.");
       load();
     } catch (e) {
       setError("ویرایش فاکتور ناموفق بود");
@@ -177,6 +188,7 @@ export default function InvoiceManager() {
       }
       await deleteInvoice(id, token);
       if (editingId === id) resetForm();
+      setSuccess("فاکتور حذف شد.");
       load();
     } catch (e) {
       setError("حذف فاکتور ناموفق بود");
@@ -219,7 +231,7 @@ export default function InvoiceManager() {
       })
       .join("");
 
-    const createdAt = inv.created_at ? new Date(inv.created_at).toLocaleDateString("fa-AF") : "";
+    const createdAt = inv.created_at ? formatPersianDate(inv.created_at) : "";
 
     popup.document.write(`
       <!doctype html>
@@ -265,11 +277,98 @@ export default function InvoiceManager() {
     popup.document.close();
   }
 
-  if (loading) return <div>در حال بارگذاری...</div>;
+  async function onSaveAndPrint(e) {
+    e.preventDefault();
+    setPrinting(true);
+    setError("");
+    setSuccess("");
+    try {
+      const token = getToken();
+      if (!token) {
+        setError("ابتدا وارد شوید");
+        return;
+      }
+      const payload = await buildPayload();
+      let saved;
+      if (editingId) {
+        await updateInvoice(editingId, payload, token);
+        saved = await getInvoice(editingId, token);
+      } else {
+        saved = await createInvoice(payload, token);
+      }
+      resetForm();
+      setSuccess("فاکتور ذخیره و چاپ شد.");
+      load();
+      printInvoice(saved);
+    } catch (e) {
+      setError("چاپ فاکتور ناموفق بود");
+    } finally {
+      setPrinting(false);
+    }
+  }
+
+  useEffect(() => {
+    const editId = searchParams?.get("edit");
+    if (!editId) return;
+    if (!invoices.length) return;
+    const match = invoices.find((inv) => String(inv.id) === String(editId));
+    if (match) {
+      startEdit(match);
+    } else {
+      const token = getToken();
+      if (!token) return;
+      getInvoice(editId, token)
+        .then((inv) => startEdit(inv))
+        .catch(() => null);
+    }
+  }, [searchParams, invoices]);
+
+  useEffect(() => {
+    if (editingId) return;
+    const serviceName = searchParams?.get("service");
+    if (!serviceName || services.length === 0) return;
+    if (form.items[0]?.service) return;
+    const target = services.find(
+      (s) => String(s.name || "").trim().toLowerCase() === String(serviceName).trim().toLowerCase()
+    );
+    if (!target) return;
+    setForm((prev) => ({
+      ...prev,
+      items: [{ ...prev.items[0], service: String(target.id), price: target.price || "" }],
+    }));
+  }, [searchParams, services, editingId]);
+
+  if (loading) {
+    return (
+      <div className="rounded-3xl bg-[#0e1627] border border-white/5 p-8">
+        <div className="h-5 w-44 bg-white/10 rounded-full animate-pulse mb-6" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="h-12 bg-white/5 rounded-full animate-pulse" />
+          <div className="h-12 bg-white/5 rounded-full animate-pulse" />
+          <div className="h-12 bg-white/5 rounded-full animate-pulse" />
+        </div>
+        <div className="mt-6 space-y-3">
+          <div className="h-20 bg-white/5 rounded-2xl animate-pulse" />
+          <div className="h-20 bg-white/5 rounded-2xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {error && <div className="text-red-400 bg-red-500/10 p-3 rounded">{error}</div>}
+      {error && (
+        <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200 flex items-center gap-2">
+          <span className="text-red-300">!</span>
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-sm text-emerald-200 flex items-center gap-2">
+          <span className="text-emerald-300">✓</span>
+          {success}
+        </div>
+      )}
 
       <form onSubmit={editingId ? onUpdate : onCreate} className="bg-[#0e1627] p-6 md:p-8 rounded-[28px] space-y-6 shadow-2xl border border-white/5">
         <div className="flex items-center justify-between">
@@ -281,7 +380,7 @@ export default function InvoiceManager() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="md:col-span-2">
             <label className="block text-xs mb-1 text-gray-400">نام مشتری یا پروژه</label>
             <input
@@ -295,9 +394,19 @@ export default function InvoiceManager() {
             <button
               type="submit"
               disabled={saving}
-              className="bg-amber-400 hover:bg-amber-300 text-black font-bold px-4 py-3 rounded-full w-full shadow-lg"
+              className="bg-amber-400 hover:bg-amber-300 text-black font-bold px-4 py-3 rounded-full w-full shadow-lg flex items-center justify-center gap-2"
             >
               {saving ? "در حال ذخیره..." : editingId ? "ثبت ویرایش" : "ثبت فاکتور"}
+            </button>
+          </div>
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={onSaveAndPrint}
+              disabled={printing}
+              className="bg-slate-200/90 hover:bg-white text-black font-bold px-4 py-3 rounded-full w-full shadow-lg flex items-center justify-center gap-2"
+            >
+              {printing ? "در حال چاپ..." : "ذخیره و پرنت"}
             </button>
           </div>
         </div>
@@ -356,8 +465,8 @@ export default function InvoiceManager() {
             );
           })}
           {services.length === 0 && (
-            <div className="text-xs text-amber-300">هیچ خدمتی پیدا نشد. ابتدا خدمات را تعریف کنید.</div>
-          )}
+              <div className="text-xs text-amber-300">هیچ خدمتی پیدا نشد. ابتدا خدمات را تعریف کنید.</div>
+            )}
 
           <div className="bg-[#0b1220] border border-dashed border-[#223055] rounded-2xl p-4 flex items-center justify-between">
             <div className="text-xs text-gray-400">مبلغ نهایی فاکتور</div>
@@ -375,26 +484,26 @@ export default function InvoiceManager() {
               </div>
               <div>
                 <div className="text-sm text-gray-200">{inv.customer_name}</div>
-                <div className="text-xs text-gray-500">{new Date(inv.created_at).toLocaleDateString("fa-AF")}</div>
+                <div className="text-xs text-gray-500">{formatPersianDate(inv.created_at)}</div>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <div className="text-amber-300 font-bold text-sm">AFN {Number(inv.total_amount || 0).toLocaleString("fa-AF")}</div>
               <button
                 onClick={() => printInvoice(inv)}
-                className="w-8 h-8 rounded-full bg-white/5 text-amber-200"
+                className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-amber-200"
                 title="چاپ"
               >
                 ⎙
               </button>
               <button
                 onClick={() => startEdit(inv)}
-                className="w-8 h-8 rounded-full bg-white/5 text-sky-300"
+                className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-sky-300"
                 title="ویرایش"
               >
                 ✎
               </button>
-              <button onClick={() => onDelete(inv.id)} className="w-8 h-8 rounded-full bg-white/5 text-red-300" title="حذف">
+              <button onClick={() => onDelete(inv.id)} className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-red-300" title="حذف">
                 ×
               </button>
             </div>

@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { createExpense, deleteExpense, getExpenses, getFinanceMonthly, getFinanceReport } from "@/lib/api";
+import { useSearchParams } from "next/navigation";
+import { createExpense, deleteExpense, getExpenses, getFinanceMonthly, getFinanceReport, getInvoices } from "@/lib/api";
+import { formatPersianDate, parseJalaliToGregorian } from "@/lib/date";
 
 function Card({ children, className = "" }) {
   return (
@@ -10,22 +12,31 @@ function Card({ children, className = "" }) {
   );
 }
 
+function formatDate(dateStr) {
+  return formatPersianDate(dateStr);
+}
+
 export default function FinancePage() {
+  const searchParams = useSearchParams();
   const [report, setReport] = useState({ total_sales: 0, total_expenses: 0, profit: 0, total_invoices: 0, top_products: [] });
   const [monthly, setMonthly] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [form, setForm] = useState({ title: "", amount: "", category: "" });
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [filters, setFilters] = useState({ start: "", end: "" });
+  const [jalaliFilters, setJalaliFilters] = useState({ start: "", end: "" });
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   function getToken() {
     if (typeof window === "undefined") return null;
     return localStorage.getItem("accessToken");
   }
 
-  async function load() {
+  async function load(nextFilters) {
     setLoading(true);
     setError("");
     try {
@@ -35,15 +46,17 @@ export default function FinancePage() {
         setLoading(false);
         return;
       }
-      const params = { start: filters.start, end: filters.end };
-      const [r, m, e] = await Promise.all([
+      const params = { start: nextFilters?.start ?? filters.start, end: nextFilters?.end ?? filters.end };
+      const [r, m, e, inv] = await Promise.all([
         getFinanceReport(token, params),
         getFinanceMonthly(token, params),
         getExpenses(token, params),
+        getInvoices(token),
       ]);
       setReport(r);
       setMonthly(m);
       setExpenses(e);
+      setInvoices(inv);
     } catch (e) {
       setError("خطا در دریافت اطلاعات مالی");
     } finally {
@@ -55,9 +68,17 @@ export default function FinancePage() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (searchParams?.get("newExpense") === "1") {
+      setShowExpenseModal(true);
+    }
+  }, [searchParams]);
+
   async function onCreateExpense(e) {
     e.preventDefault();
     setError("");
+    setSuccess("");
+    setBusy(true);
     try {
       const token = getToken();
       if (!token) {
@@ -74,13 +95,19 @@ export default function FinancePage() {
       );
       setForm({ title: "", amount: "", category: "" });
       setShowExpenseModal(false);
+      setSuccess("هزینه با موفقیت ثبت شد.");
       load();
     } catch (e) {
       setError("ثبت هزینه ناموفق بود");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function onDeleteExpense(id) {
+    const confirmDelete = typeof window !== "undefined" ? window.confirm("آیا از حذف این هزینه مطمئن هستید؟") : true;
+    if (!confirmDelete) return;
+    setBusy(true);
     try {
       const token = getToken();
       if (!token) {
@@ -88,9 +115,12 @@ export default function FinancePage() {
         return;
       }
       await deleteExpense(id, token);
+      setSuccess("هزینه حذف شد.");
       load();
     } catch (e) {
       setError("حذف هزینه ناموفق بود");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -122,49 +152,183 @@ export default function FinancePage() {
     }
   }
 
+  function filterByDate(list, dateKey) {
+    if (!filters.start && !filters.end) return list;
+    const start = filters.start ? new Date(filters.start) : null;
+    const end = filters.end ? new Date(filters.end) : null;
+    return list.filter((item) => {
+      const dt = new Date(item[dateKey]);
+      if (start && dt < start) return false;
+      if (end && dt > new Date(end.getTime() + 24 * 60 * 60 * 1000 - 1)) return false;
+      return true;
+    });
+  }
+
+  function onPrintReport() {
+    const printableExpenses = filterByDate(expenses, "date");
+    const printableInvoices = filterByDate(invoices, "created_at");
+    const win = window.open("", "_blank", "width=900,height=700");
+    if (!win) return;
+
+    const rowsExpenses = printableExpenses
+      .map(
+        (e, idx) => `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${e.title}</td>
+          <td>${e.category || "-"}</td>
+          <td>${formatDate(e.date)}</td>
+          <td>${Number(e.amount || 0).toLocaleString("fa-AF")}</td>
+        </tr>
+      `
+      )
+      .join("");
+
+    const rowsInvoices = printableInvoices
+      .map(
+        (inv, idx) => `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${inv.customer_name || "-"}</td>
+          <td>${formatDate(inv.created_at)}</td>
+          <td>${Number(inv.total_amount || 0).toLocaleString("fa-AF")}</td>
+        </tr>
+      `
+      )
+      .join("");
+
+    win.document.write(`
+      <!doctype html>
+      <html lang="fa" dir="rtl">
+        <head>
+          <meta charset="utf-8" />
+          <title>گزارش مالی</title>
+          <style>
+            body { font-family: Tahoma, Arial, sans-serif; padding: 24px; color: #0f172a; }
+            h1 { font-size: 20px; margin: 0 0 12px; }
+            h2 { font-size: 14px; margin: 20px 0 8px; }
+            .meta { display: flex; justify-content: space-between; font-size: 12px; color: #334155; margin-bottom: 10px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #cbd5f5; padding: 8px; text-align: center; }
+            th { background: #f8fafc; }
+            .summary { margin-top: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+            .box { border: 1px solid #cbd5f5; padding: 8px; border-radius: 8px; background: #f8fafc; }
+          </style>
+        </head>
+        <body>
+          <h1>گزارش مالی کارخانه نجاری</h1>
+          <div class="meta">
+            <div>تاریخ شروع: ${formatPersianDate(filters.start) || "-"}</div>
+            <div>تاریخ پایان: ${formatPersianDate(filters.end) || "-"}</div>
+          </div>
+          <div class="summary">
+            <div class="box">فروشات: AFN ${Number(report.total_sales || 0).toLocaleString("fa-AF")}</div>
+            <div class="box">مصارف: AFN ${Number(report.total_expenses || 0).toLocaleString("fa-AF")}</div>
+            <div class="box">سود خالص: AFN ${Number(report.profit || 0).toLocaleString("fa-AF")}</div>
+          </div>
+
+          <h2>فاکتورها</h2>
+          <table>
+            <thead><tr><th>#</th><th>مشتری</th><th>تاریخ</th><th>مبلغ</th></tr></thead>
+            <tbody>${rowsInvoices || "<tr><td colspan='4'>فاکتوری ثبت نشده است.</td></tr>"}</tbody>
+          </table>
+
+          <h2>مصارف</h2>
+          <table>
+            <thead><tr><th>#</th><th>شرح</th><th>دسته</th><th>تاریخ</th><th>مبلغ</th></tr></thead>
+            <tbody>${rowsExpenses || "<tr><td colspan='5'>مصرفی ثبت نشده است.</td></tr>"}</tbody>
+          </table>
+
+          <script>window.focus(); window.print();</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  }
+
   const maxMonthly = useMemo(() => {
     const values = monthly.flatMap((m) => [Number(m.income || 0), Number(m.expense || 0)]);
     return Math.max(1, ...values);
   }, [monthly]);
 
-  if (loading) return <div>در حال بارگذاری...</div>;
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="h-16 rounded-3xl bg-white/5 animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="h-24 rounded-3xl bg-white/5 animate-pulse" />
+          <div className="h-24 rounded-3xl bg-white/5 animate-pulse" />
+          <div className="h-24 rounded-3xl bg-white/5 animate-pulse" />
+        </div>
+        <div className="h-56 rounded-3xl bg-white/5 animate-pulse" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold">دفتر ثبت هزینه‌ها</h2>
-        <button
-          onClick={() => setShowExpenseModal(true)}
-          className="bg-rose-500/80 hover:bg-rose-500 text-white font-bold px-4 py-2 rounded-full"
-        >
-          ثبت هزینه جدید
-        </button>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold">دفتر ثبت هزینه‌ها و گزارش مالی</h2>
+          <p className="text-xs text-gray-400 mt-1">تحلیل سریع فروشات، مصارف و فاکتورها</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowExpenseModal(true)}
+            className="bg-rose-500/80 hover:bg-rose-500 text-white font-bold px-4 py-2 rounded-full"
+          >
+            ثبت هزینه جدید
+          </button>
+          <button
+            onClick={onPrintReport}
+            className="bg-slate-200/90 hover:bg-white text-black font-bold px-4 py-2 rounded-full"
+          >
+            چاپ گزارش
+          </button>
+        </div>
       </div>
 
-      {error && <div className="text-red-400 bg-red-500/10 p-3 rounded">{error}</div>}
+      {error && (
+        <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+          {success}
+        </div>
+      )}
 
       <Card>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
           <div>
-            <label className="block text-sm mb-1 text-gray-400">از تاریخ</label>
+            <label className="block text-sm mb-1 text-gray-400">از تاریخ (هجری شمسی)</label>
             <input
-              type="date"
+              type="text"
               className="w-full bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
-              value={filters.start}
-              onChange={(e) => setFilters({ ...filters, start: e.target.value })}
+              placeholder="1404/11/04"
+              value={jalaliFilters.start}
+              onChange={(e) => setJalaliFilters({ ...jalaliFilters, start: e.target.value })}
             />
+            {filters.start && (
+              <div className="mt-1 text-[11px] text-gray-500">میلادی: {filters.start}</div>
+            )}
           </div>
           <div>
-            <label className="block text-sm mb-1 text-gray-400">تا تاریخ</label>
+            <label className="block text-sm mb-1 text-gray-400">تا تاریخ (هجری شمسی)</label>
             <input
-              type="date"
+              type="text"
               className="w-full bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
-              value={filters.end}
-              onChange={(e) => setFilters({ ...filters, end: e.target.value })}
+              placeholder="1404/11/04"
+              value={jalaliFilters.end}
+              onChange={(e) => setJalaliFilters({ ...jalaliFilters, end: e.target.value })}
             />
+            {filters.end && (
+              <div className="mt-1 text-[11px] text-gray-500">میلادی: {filters.end}</div>
+            )}
           </div>
           <button
-            onClick={load}
+            onClick={applyJalaliFilters}
             className="bg-sky-500/80 hover:bg-sky-500 text-black font-bold px-4 py-2 rounded-full"
           >
             اعمال فیلتر
@@ -175,6 +339,7 @@ export default function FinancePage() {
           >
             خروجی PDF
           </button>
+          <div className="text-xs text-gray-400">فیلتر روی فروشات، مصارف و فاکتورها اعمال می‌شود.</div>
         </div>
       </Card>
 
@@ -217,11 +382,12 @@ export default function FinancePage() {
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <h3 className="font-semibold mb-4">راهنما</h3>
+        <Card className="border-amber-400/20">
+          <h3 className="font-semibold mb-4 text-amber-300">راهنمای عملیات مالی</h3>
           <div className="text-sm text-gray-400 space-y-2">
-            <p>برای ثبت هزینه جدید روی دکمه «ثبت هزینه جدید» کلیک کنید.</p>
-            <p>هزینه‌ها در جدول سمت چپ نمایش داده می‌شوند.</p>
+            <p>برای ثبت هزینه جدید، روی «ثبت هزینه جدید» کلیک کنید و دسته‌بندی را مشخص نمایید.</p>
+            <p>با فیلتر تاریخ می‌توانید گزارش کامل فروشات، مصارف و فاکتورها را دریافت کنید.</p>
+            <p>برای چاپ گزارش، از دکمه «چاپ گزارش» استفاده کنید.</p>
           </div>
         </Card>
 
@@ -236,12 +402,12 @@ export default function FinancePage() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-200">{exp.title}</p>
-                    <p className="text-xs text-gray-500">{exp.category || "متفرقه"} • {new Date(exp.date).toLocaleDateString("fa-AF")}</p>
+                    <p className="text-xs text-gray-500">{exp.category || "متفرقه"} • {formatDate(exp.date)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-rose-300">AFN {Number(exp.amount || 0).toLocaleString("fa-AF")}</span>
-                  <button onClick={() => onDeleteExpense(exp.id)} className="w-8 h-8 rounded-full bg-white/5 text-red-300">×</button>
+                  <button onClick={() => onDeleteExpense(exp.id)} className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-red-300">×</button>
                 </div>
               </div>
             ))}
@@ -285,8 +451,9 @@ export default function FinancePage() {
               <button
                 className="w-full bg-rose-500/90 hover:bg-rose-500 text-white font-bold px-4 py-2 rounded-full"
                 type="submit"
+                disabled={busy}
               >
-                ثبت نهایی
+                {busy ? "در حال ثبت..." : "ثبت نهایی"}
               </button>
             </form>
           </div>
@@ -295,3 +462,18 @@ export default function FinancePage() {
     </div>
   );
 }
+  function applyJalaliFilters() {
+    const gStart = jalaliFilters.start ? parseJalaliToGregorian(jalaliFilters.start) : "";
+    const gEnd = jalaliFilters.end ? parseJalaliToGregorian(jalaliFilters.end) : "";
+    if (jalaliFilters.start && !gStart) {
+      setError("فرمت تاریخ شروع درست نیست. نمونه: 1404/11/04");
+      return;
+    }
+    if (jalaliFilters.end && !gEnd) {
+      setError("فرمت تاریخ پایان درست نیست. نمونه: 1404/11/04");
+      return;
+    }
+    const next = { start: gStart || "", end: gEnd || "" };
+    setFilters(next);
+    load(next);
+  }
