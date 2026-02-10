@@ -14,10 +14,10 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="fa" dir="rtl">
+    <html lang="fa" dir="rtl" suppressHydrationWarning>
       <body
         suppressHydrationWarning
-        className={`${vazirmatn.className} bg-[#0b1220] text-gray-200 min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.08),_transparent_40%),radial-gradient(circle_at_20%_20%,_rgba(251,191,36,0.12),_transparent_35%)]`}
+        className={`${vazirmatn.className} min-h-screen overflow-hidden bg-[var(--app-bg)] text-[var(--app-text)]`}
       >
         <AppShell>{children}</AppShell>
       </body>

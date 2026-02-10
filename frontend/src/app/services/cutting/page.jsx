@@ -1,6 +1,8 @@
 "use client";
 import ServiceSection from "@/components/services/ServiceSection";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export default function CuttingServicePage() {
-  return <ServiceSection title="مدیریت پروژه‌های Cutting" tag="Cutting" />;
+  const { t } = useI18n();
+  return <ServiceSection title={`${t("serviceProjects")} Cutting`} tag="Cutting" />;
 }

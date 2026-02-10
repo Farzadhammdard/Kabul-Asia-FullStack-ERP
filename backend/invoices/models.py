@@ -22,7 +22,8 @@ class InvoiceItem(models.Model):
     service = models.ForeignKey(Service, on_delete=models.PROTECT)
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     @property
     def total_price(self):
-        return self.quantity * self.price
+        return (self.quantity * self.price) - self.discount

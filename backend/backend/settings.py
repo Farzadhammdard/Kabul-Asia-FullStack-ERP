@@ -98,3 +98,6 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+
+# Password reset token (set in env for production)
+RESET_PASSWORD_TOKEN = os.getenv("RESET_PASSWORD_TOKEN", "KABUL_ASIA_RESET")

@@ -8,6 +8,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from invoices.models import InvoiceItem
+from core.models import Employee
 from .models import Expense
 from .serializers import ExpenseSerializer
 from core.permissions import IsAdminOrReadOnly
@@ -88,16 +89,16 @@ def finance_report_pdf(request):
             <div class="card">سود خالص: {report["profit"]}</div>
           </div>
 
-          <h3>محصولات پرفروش</h3>
+          <h3>خدمات پرفروش</h3>
           <table>
             <thead>
               <tr>
-                <th>محصول</th>
+                <th>خدمت</th>
                 <th>تعداد</th>
               </tr>
             </thead>
             <tbody>
-              {''.join([f"<tr><td>{p['product__name']}</td><td>{p['total_qty']}</td></tr>" for p in report["top_products"]])}
+              {''.join([f"<tr><td>{p['service__name']}</td><td>{p['total_qty']}</td></tr>" for p in report["top_products"]])}
             </tbody>
           </table>
         </div>
@@ -117,8 +118,13 @@ def finance_monthly(request):
     today = timezone.now().date()
     start_month = date(today.year, today.month, 1)
 
+    def month_key(value):
+        if not value:
+            return None
+        return value.date() if hasattr(value, "date") else value
+
     income_by_month = {
-        item["month"].date(): item["total"]
+        month_key(item["month"]): item["total"]
         for item in (
             InvoiceItem.objects
             .annotate(month=TruncMonth("invoice__created_at"))
@@ -129,7 +135,7 @@ def finance_monthly(request):
     }
 
     expense_by_month = {
-        item["month"].date(): item["total"]
+        month_key(item["month"]): item["total"]
         for item in (
             Expense.objects
             .annotate(month=TruncMonth("date"))
@@ -159,6 +165,7 @@ def finance_monthly(request):
 def _compute_report(start, end):
     items = InvoiceItem.objects.all()
     expenses_qs = Expense.objects.all()
+    employees_qs = Employee.objects.all()
 
     if start:
         items = items.filter(invoice__created_at__date__gte=start)
@@ -173,11 +180,12 @@ def _compute_report(start, end):
 
     total_invoices = items.values("invoice").distinct().count()
     total_expenses = expenses_qs.aggregate(total=Sum("amount"))["total"] or 0
-    profit = total_sales - total_expenses
+    total_salaries = employees_qs.aggregate(total=Sum("salary"))["total"] or 0
+    profit = total_sales - total_expenses - total_salaries
 
     top_products = (
         items
-        .values("product__name")
+        .values("service__name")
         .annotate(total_qty=Sum("quantity"))
         .order_by("-total_qty")[:5]
     )
@@ -185,6 +193,7 @@ def _compute_report(start, end):
     return {
         "total_sales": total_sales,
         "total_expenses": total_expenses,
+        "total_salaries": total_salaries,
         "profit": profit,
         "total_invoices": total_invoices,
         "top_products": list(top_products),

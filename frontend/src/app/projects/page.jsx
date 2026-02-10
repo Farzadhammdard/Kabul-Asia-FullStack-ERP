@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createProject, deleteProject, getProjects } from "@/lib/api";
+import LoadingSkeleton from "@/components/common/LoadingSkeleton";
+import { showToast } from "@/lib/toast";
 
 function Card({ children, className = "" }) {
   return (
@@ -70,6 +72,7 @@ export default function ProjectsPage() {
       if (form.video) fd.append("video", form.video);
       await createProject(fd, token);
       setForm({ title: "", image: null, video: null });
+      showToast("پروژه با موفقیت ثبت شد.");
       load();
     } catch (e) {
       setError("ثبت پروژه ناموفق بود");
@@ -92,7 +95,7 @@ export default function ProjectsPage() {
     }
   }
 
-  if (loading) return <div>در حال بارگذاری...</div>;
+  if (loading) return <LoadingSkeleton className="mx-auto" />;
 
   return (
     <div className="space-y-6">
@@ -133,8 +136,9 @@ export default function ProjectsPage() {
             <button
               type="submit"
               disabled={saving}
-              className="bg-amber-400 text-black font-bold px-4 py-2 rounded"
+              className="bg-amber-400 text-black font-bold px-4 py-2 rounded flex items-center justify-center gap-2"
             >
+              {saving && <span className="spinner" />}
               {saving ? "در حال ذخیره..." : "ثبت پروژه"}
             </button>
           </div>

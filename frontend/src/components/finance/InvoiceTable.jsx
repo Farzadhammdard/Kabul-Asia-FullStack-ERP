@@ -11,7 +11,7 @@ import {
 } from "@/lib/api";
 import { formatPersianDate } from "@/lib/date";
 
-const DEFAULT_ITEM = { service: "", quantity: 1, price: "" };
+const DEFAULT_ITEM = { service: "", quantity: 1, price: "", discount: "" };
 
 function getUnitLabel(serviceName = "") {
   const name = String(serviceName).toLowerCase();
@@ -55,7 +55,7 @@ export default function InvoiceManager() {
     try {
       const token = getToken();
       if (!token) {
-        setError("برای مشاهده فاکتورها ابتدا وارد شوید.");
+        setError("برای مشاهده بل‌ها ابتدا وارد شوید.");
         setLoading(false);
         return;
       }
@@ -71,7 +71,7 @@ export default function InvoiceManager() {
       });
       setServices([...uniq.values()]);
     } catch (e) {
-      setError("خطا در دریافت فاکتورها");
+      setError("خطا در دریافت بل‌ها");
     } finally {
       setLoading(false);
     }
@@ -88,7 +88,8 @@ export default function InvoiceManager() {
   const formTotal = useMemo(() => {
     return form.items.reduce((sum, item) => {
       const price = Number(item.price || serviceMap.get(String(item.service))?.price || 0);
-      return sum + Number(item.quantity || 0) * price;
+      const discount = Number(item.discount || 0);
+      return sum + (Number(item.quantity || 0) * price) - discount;
     }, 0);
   }, [form.items, serviceMap]);
 
@@ -128,6 +129,7 @@ export default function InvoiceManager() {
           service: Number(i.service),
           quantity: Number(i.quantity),
           price: Number(i.price || serviceMap.get(String(i.service))?.price || 0),
+          discount: Number(i.discount || 0),
         })),
     };
   }
@@ -146,10 +148,10 @@ export default function InvoiceManager() {
       }
       await createInvoice(payload, token);
       resetForm();
-      setSuccess("فاکتور با موفقیت ثبت شد.");
+      setSuccess("بل با موفقیت ثبت شد.");
       load();
     } catch (e) {
-      setError("ایجاد فاکتور ناموفق بود");
+      setError("ایجاد بل ناموفق بود");
     } finally {
       setSaving(false);
     }
@@ -170,10 +172,10 @@ export default function InvoiceManager() {
       const payload = await buildPayload();
       await updateInvoice(editingId, payload, token);
       resetForm();
-      setSuccess("فاکتور با موفقیت ویرایش شد.");
+      setSuccess("بل با موفقیت ویرایش شد.");
       load();
     } catch (e) {
-      setError("ویرایش فاکتور ناموفق بود");
+      setError("ویرایش بل ناموفق بود");
     } finally {
       setSaving(false);
     }
@@ -188,10 +190,10 @@ export default function InvoiceManager() {
       }
       await deleteInvoice(id, token);
       if (editingId === id) resetForm();
-      setSuccess("فاکتور حذف شد.");
+      setSuccess("بل حذف شد.");
       load();
     } catch (e) {
-      setError("حذف فاکتور ناموفق بود");
+      setError("حذف بل ناموفق بود");
     }
   }
 
@@ -203,6 +205,7 @@ export default function InvoiceManager() {
         service: String(item.service || ""),
         quantity: item.quantity || 1,
         price: item.price || "",
+        discount: item.discount || "",
       })),
     });
   }
@@ -212,19 +215,20 @@ export default function InvoiceManager() {
     const popup = window.open("", "_blank", "width=900,height=650");
     if (!popup) return;
 
-    const currency = "AFN";
+    const currency = "افغانی";
     const rows = (inv.items || [])
       .map((item, index) => {
         const service = serviceMap.get(String(item.service));
         const serviceName = item.service_name || service?.name || "-";
         const unit = getUnitLabel(serviceName);
-        const total = Number(item.quantity || 0) * Number(item.price || 0);
+        const total = (Number(item.quantity || 0) * Number(item.price || 0)) - Number(item.discount || 0);
         return `
           <tr>
             <td>${index + 1}</td>
             <td>${serviceName}</td>
             <td>${item.quantity} ${unit}</td>
             <td>${Number(item.price || 0).toLocaleString("fa-AF")}</td>
+            <td>${Number(item.discount || 0).toLocaleString("fa-AF")}</td>
             <td>${total.toLocaleString("fa-AF")}</td>
           </tr>
         `;
@@ -238,7 +242,7 @@ export default function InvoiceManager() {
       <html lang="fa" dir="rtl">
         <head>
           <meta charset="utf-8" />
-          <title>چاپ فاکتور</title>
+          <title>چاپ بل</title>
           <style>
             body { font-family: Tahoma, Arial, sans-serif; padding: 24px; color: #0f172a; }
             h1 { font-size: 20px; margin: 0 0 12px; }
@@ -250,7 +254,7 @@ export default function InvoiceManager() {
           </style>
         </head>
         <body>
-          <h1>فاکتور خدمات</h1>
+          <h1>بل خدمات</h1>
           <div class="meta">
             <div>نام مشتری: ${inv.customer_name || "-"}</div>
             <div>تاریخ: ${createdAt}</div>
@@ -262,11 +266,12 @@ export default function InvoiceManager() {
                 <th>خدمت</th>
                 <th>مقدار</th>
                 <th>قیمت</th>
+                <th>تخفیف</th>
                 <th>جمع</th>
               </tr>
             </thead>
             <tbody>
-              ${rows || "<tr><td colspan='5'>آیتمی ثبت نشده است.</td></tr>"}
+              ${rows || "<tr><td colspan='6'>آیتمی ثبت نشده است.</td></tr>"}
             </tbody>
           </table>
           <div class="total">مبلغ نهایی: ${currency} ${Number(inv.total_amount || 0).toLocaleString("fa-AF")}</div>
@@ -297,11 +302,11 @@ export default function InvoiceManager() {
         saved = await createInvoice(payload, token);
       }
       resetForm();
-      setSuccess("فاکتور ذخیره و چاپ شد.");
+      setSuccess("بل ذخیره و چاپ شد.");
       load();
       printInvoice(saved);
     } catch (e) {
-      setError("چاپ فاکتور ناموفق بود");
+      setError("چاپ بل ناموفق بود");
     } finally {
       setPrinting(false);
     }
@@ -370,9 +375,9 @@ export default function InvoiceManager() {
         </div>
       )}
 
-      <form onSubmit={editingId ? onUpdate : onCreate} className="bg-[#0e1627] p-6 md:p-8 rounded-[28px] space-y-6 shadow-2xl border border-white/5">
+      <form onSubmit={editingId ? onUpdate : onCreate} className="bg-[var(--card-bg)] p-6 md:p-8 rounded-[28px] space-y-6 shadow-2xl border border-[var(--border-color)]">
         <div className="flex items-center justify-between">
-          <h3 className="font-bold text-amber-300">{editingId ? "ویرایش فاکتور" : "صدور فاکتور جدید"}</h3>
+          <h3 className="font-bold text-amber-300">{editingId ? "ویرایش بل" : "صدور بل جدید"}</h3>
           {editingId && (
             <button type="button" className="text-xs text-gray-400" onClick={resetForm}>
               انصراف
@@ -396,7 +401,8 @@ export default function InvoiceManager() {
               disabled={saving}
               className="bg-amber-400 hover:bg-amber-300 text-black font-bold px-4 py-3 rounded-full w-full shadow-lg flex items-center justify-center gap-2"
             >
-              {saving ? "در حال ذخیره..." : editingId ? "ثبت ویرایش" : "ثبت فاکتور"}
+              {saving && <span className="spinner" />}
+              {saving ? "در حال ذخیره..." : editingId ? "ثبت ویرایش" : "ثبت بل"}
             </button>
           </div>
           <div className="flex items-end">
@@ -404,8 +410,9 @@ export default function InvoiceManager() {
               type="button"
               onClick={onSaveAndPrint}
               disabled={printing}
-              className="bg-slate-200/90 hover:bg-white text-black font-bold px-4 py-3 rounded-full w-full shadow-lg flex items-center justify-center gap-2"
+              className="bg-[var(--panel-bg)] hover:bg-black/5 text-[var(--app-text)] font-bold px-4 py-3 rounded-full w-full shadow-lg border border-[var(--border-color)] flex items-center justify-center gap-2"
             >
+              {printing && <span className="spinner" />}
               {printing ? "در حال چاپ..." : "ذخیره و پرنت"}
             </button>
           </div>
@@ -413,16 +420,16 @@ export default function InvoiceManager() {
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm text-gray-300">اقلام فاکتور</h4>
+            <h4 className="text-sm text-[var(--muted)]">اقلام بل</h4>
             <button type="button" onClick={addItem} className="text-xs text-amber-300">افزودن آیتم</button>
           </div>
           {form.items.map((item, index) => {
             const service = serviceMap.get(String(item.service));
             const serviceName = service?.name || "";
             return (
-              <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-[#0b1220] border border-[#1d2a47] rounded-2xl p-4">
+              <div key={index} className="grid grid-cols-1 md:grid-cols-5 gap-3 bg-[var(--panel-bg)] border border-[var(--border-color)] rounded-2xl p-4">
                 <select
-                  className="bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
+                  className="bg-[var(--panel-bg)] border border-[var(--border-color)] rounded-full px-3 py-2 outline-none"
                   value={item.service}
                   onChange={(e) => {
                     const selected = e.target.value;
@@ -438,7 +445,7 @@ export default function InvoiceManager() {
                   ))}
                 </select>
                 <input
-                  className="bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
+                  className="bg-[var(--panel-bg)] border border-[var(--border-color)] rounded-full px-3 py-2 outline-none"
                   type="number"
                   min="1"
                   placeholder={getQuantityPlaceholder(serviceName)}
@@ -446,16 +453,24 @@ export default function InvoiceManager() {
                   onChange={(e) => updateItem(index, { quantity: e.target.value })}
                 />
                 <input
-                  className="bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
+                  className="bg-[var(--panel-bg)] border border-[var(--border-color)] rounded-full px-3 py-2 outline-none"
                   type="number"
                   min="0"
                   placeholder={getPricePlaceholder(serviceName)}
                   value={item.price}
                   onChange={(e) => updateItem(index, { price: e.target.value })}
                 />
+                <input
+                  className="bg-[var(--panel-bg)] border border-[var(--border-color)] rounded-full px-3 py-2 outline-none"
+                  type="number"
+                  min="0"
+                  placeholder="تخفیف"
+                  value={item.discount}
+                  onChange={(e) => updateItem(index, { discount: e.target.value })}
+                />
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">
-                    مبلغ: {Number(item.quantity || 0) * Number(item.price || service?.price || 0)}
+                  <span className="text-xs text-[var(--muted)]">
+                    مبلغ: {(Number(item.quantity || 0) * Number(item.price || service?.price || 0)) - Number(item.discount || 0)}
                   </span>
                   <button type="button" onClick={() => removeItem(index)} className="text-xs text-red-400">
                     حذف
@@ -468,27 +483,27 @@ export default function InvoiceManager() {
               <div className="text-xs text-amber-300">هیچ خدمتی پیدا نشد. ابتدا خدمات را تعریف کنید.</div>
             )}
 
-          <div className="bg-[#0b1220] border border-dashed border-[#223055] rounded-2xl p-4 flex items-center justify-between">
-            <div className="text-xs text-gray-400">مبلغ نهایی فاکتور</div>
-            <div className="text-amber-300 font-extrabold">AFN {Number(formTotal || 0).toLocaleString("fa-AF")}</div>
+          <div className="bg-[var(--panel-bg)] border border-dashed border-[var(--border-color)] rounded-2xl p-4 flex items-center justify-between">
+            <div className="text-xs text-[var(--muted)]">مبلغ نهایی بل</div>
+            <div className="text-amber-300 font-extrabold">?? {Number(formTotal || 0).toLocaleString("fa-AF")}</div>
           </div>
         </div>
       </form>
 
       <div className="space-y-3">
         {invoices.map((inv) => (
-          <div key={inv.id} className="bg-[#0b1220] border border-[#1d2a47] rounded-2xl px-4 py-3 flex items-center justify-between">
+          <div key={inv.id} className="bg-[var(--panel-bg)] border border-[var(--border-color)] rounded-2xl px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-amber-400/20 text-amber-300 flex items-center justify-center">
                 #
               </div>
               <div>
                 <div className="text-sm text-gray-200">{inv.customer_name}</div>
-                <div className="text-xs text-gray-500">{formatPersianDate(inv.created_at)}</div>
+                <div className="text-xs text-[var(--muted)]">{formatPersianDate(inv.created_at)}</div>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <div className="text-amber-300 font-bold text-sm">AFN {Number(inv.total_amount || 0).toLocaleString("fa-AF")}</div>
+              <div className="text-amber-300 font-bold text-sm">?? {Number(inv.total_amount || 0).toLocaleString("fa-AF")}</div>
               <button
                 onClick={() => printInvoice(inv)}
                 className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-amber-200"
@@ -511,7 +526,7 @@ export default function InvoiceManager() {
         ))}
         {invoices.length === 0 && (
           <div className="text-center text-gray-500 py-6">
-            فاکتوری ثبت نشده است.
+            بلی ثبت نشده است.
           </div>
         )}
       </div>

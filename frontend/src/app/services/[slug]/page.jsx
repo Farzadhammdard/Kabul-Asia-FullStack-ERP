@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import ServiceSection from "@/components/services/ServiceSection";
 import { getServices } from "@/lib/api";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import LoadingSkeleton from "@/components/common/LoadingSkeleton";
 
 function toSlug(value) {
   return String(value || "")
@@ -12,6 +14,7 @@ function toSlug(value) {
 }
 
 export default function ServiceDynamicPage({ params }) {
+  const { t } = useI18n();
   const slug = params?.slug || "";
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,14 +32,14 @@ export default function ServiceDynamicPage({ params }) {
       try {
         const token = getToken();
         if (!token) {
-          setError("برای مشاهده خدمات ابتدا وارد شوید.");
+          setError(t("loginRequired"));
           setLoading(false);
           return;
         }
         const data = await getServices(token);
         setServices(data);
       } catch (e) {
-        setError("خطا در دریافت خدمات");
+        setError(t("errorServiceLoad") || "خطا در دریافت خدمات");
       } finally {
         setLoading(false);
       }
@@ -48,9 +51,9 @@ export default function ServiceDynamicPage({ params }) {
     return services.find((s) => toSlug(s.name) === slug);
   }, [services, slug]);
 
-  if (loading) return <div>در حال بارگذاری...</div>;
+  if (loading) return <LoadingSkeleton className="mx-auto" />;
   if (error) return <div className="text-red-300">{error}</div>;
-  if (!service) return <div className="text-gray-500">این خدمت یافت نشد.</div>;
+  if (!service) return <div className="text-gray-500">{t("serviceNotFound")}</div>;
 
-  return <ServiceSection title={`مدیریت پروژه‌های ${service.name}`} tag={service.name} />;
+  return <ServiceSection title={`${t("serviceProjects")} ${service.name}`} tag={service.name} />;
 }

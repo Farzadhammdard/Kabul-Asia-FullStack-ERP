@@ -90,6 +90,21 @@ export async function getUsers(token) {
   if (!res.ok) throw new Error("Failed to load users");
   return res.json();
 }
+export async function getCurrentUser(token) {
+  const res = await fetch(`${API_BASE}/users/me/`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to load current user");
+  return res.json();
+}
+
+export async function refreshAccessToken(refreshToken) {
+  const res = await fetch(`${API_BASE}/token/refresh/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh: refreshToken }),
+  });
+  if (!res.ok) throw new Error("Failed to refresh token");
+  return res.json();
+}
 export async function createUser(payload, token) {
   const res = await fetch(`${API_BASE}/users/`, {
     method: "POST",
@@ -122,7 +137,47 @@ export async function changePassword(payload, token) {
     headers: { "Content-Type": "application/json", ...authHeaders(token) },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to change password");
+  if (!res.ok) {
+    let detail = "Failed to change password";
+    try {
+      const data = await res.json();
+      detail = data?.detail || data?.old_password?.[0] || detail;
+    } catch {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function resetPassword(payload) {
+  const res = await fetch(`${API_BASE}/users/reset-password/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let detail = "Failed to reset password";
+    try {
+      const data = await res.json();
+      detail = data?.detail || detail;
+    } catch {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function getUserProfile(token) {
+  const res = await fetch(`${API_BASE}/users/profile/`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to load profile");
+  return res.json();
+}
+
+export async function updateUserProfile(formData, token) {
+  const res = await fetch(`${API_BASE}/users/profile/`, {
+    method: "PATCH",
+    headers: { ...authHeaders(token) },
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Failed to update profile");
   return res.json();
 }
 export async function getCompanySettings(token) {
@@ -132,7 +187,7 @@ export async function getCompanySettings(token) {
 }
 export async function updateCompanySettings(payload, token) {
   const res = await fetch(`${API_BASE}/settings/company/`, {
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...authHeaders(token) },
     body: JSON.stringify(payload),
   });
@@ -278,5 +333,38 @@ export async function deleteService(id, token) {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error("Failed to delete service");
+  return true;
+}
+
+// Employees (students)
+export async function getEmployees(token) {
+  const res = await fetch(`${API_BASE}/employees/`, { headers: authHeaders(token), cache: "no-store" });
+  if (!res.ok) return [];
+  return res.json();
+}
+export async function createEmployee(payload, token) {
+  const res = await fetch(`${API_BASE}/employees/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(token) },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to create employee");
+  return res.json();
+}
+export async function updateEmployee(id, payload, token) {
+  const res = await fetch(`${API_BASE}/employees/${id}/`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders(token) },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to update employee");
+  return res.json();
+}
+export async function deleteEmployee(id, token) {
+  const res = await fetch(`${API_BASE}/employees/${id}/`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to delete employee");
   return true;
 }

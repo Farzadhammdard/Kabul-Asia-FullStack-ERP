@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createProduct, deleteProduct, getProducts, updateProduct } from "@/lib/api";
+import LoadingSkeleton from "@/components/common/LoadingSkeleton";
+import { showToast } from "@/lib/toast";
 
 function Card({ children, className = "" }) {
   return (
@@ -65,6 +67,7 @@ export default function ProductsPage() {
         token
       );
       setForm({ name: "", price: "", quantity: "" });
+      showToast("محصول با موفقیت ثبت شد.");
       load();
     } catch (e) {
       setError("ایجاد محصول ناموفق بود");
@@ -94,6 +97,7 @@ export default function ProductsPage() {
         token
       );
       setEditing(null);
+      showToast("ویرایش محصول با موفقیت انجام شد.");
       load();
     } catch (e) {
       setError("ویرایش محصول ناموفق بود");
@@ -116,7 +120,7 @@ export default function ProductsPage() {
     }
   }
 
-  if (loading) return <div>در حال بارگذاری...</div>;
+  if (loading) return <LoadingSkeleton className="mx-auto" />;
 
   return (
     <div className="space-y-6">
@@ -150,7 +154,7 @@ export default function ProductsPage() {
                   ? setEditing({ ...editing, price: e.target.value })
                   : setForm({ ...form, price: e.target.value })
               }
-              placeholder="AFN"
+              placeholder="افغانی"
             />
           </div>
           <div>
@@ -171,8 +175,9 @@ export default function ProductsPage() {
             <button
               type="submit"
               disabled={saving}
-              className="bg-amber-400 text-black font-bold px-4 py-2 rounded w-full"
+              className="bg-amber-400 text-black font-bold px-4 py-2 rounded w-full flex items-center justify-center gap-2"
             >
+              {saving && <span className="spinner" />}
               {saving ? "در حال ذخیره..." : editing ? "ثبت ویرایش" : "افزودن محصول"}
             </button>
             {editing && (
@@ -201,7 +206,7 @@ export default function ProductsPage() {
                 <tr key={p.id} className="border-b border-gray-800">
                   <td className="p-2">{p.id}</td>
                   <td className="p-2">{p.name}</td>
-                  <td className="p-2 text-amber-300">AFN {Number(p.price || 0).toLocaleString("fa-AF")}</td>
+                  <td className="p-2 text-amber-300">?? {Number(p.price || 0).toLocaleString("fa-AF")}</td>
                   <td className="p-2">{p.quantity}</td>
                   <td className="p-2 space-x-2 space-x-reverse">
                     <button

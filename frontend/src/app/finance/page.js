@@ -1,12 +1,14 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { createExpense, deleteExpense, getExpenses, getFinanceMonthly, getFinanceReport, getInvoices } from "@/lib/api";
-import { formatPersianDate, parseJalaliToGregorian } from "@/lib/date";
+import { createExpense, deleteExpense, getExpenses, getFinanceReport, getInvoices, getServices, createInvoice } from "@/lib/api";
+import { formatPersianDate } from "@/lib/date";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { showToast } from "@/lib/toast";
 
 function Card({ children, className = "" }) {
   return (
-    <div className={`rounded-3xl bg-[#0e1627] shadow-2xl border border-[#121a2c] p-6 ${className}`}>
+    <div className={`rounded-3xl bg-[var(--card-bg)] shadow-2xl border border-[var(--border-color)] p-6 ${className}`}>
       {children}
     </div>
   );
@@ -17,15 +19,16 @@ function formatDate(dateStr) {
 }
 
 export default function FinancePage() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const [report, setReport] = useState({ total_sales: 0, total_expenses: 0, profit: 0, total_invoices: 0, top_products: [] });
-  const [monthly, setMonthly] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [services, setServices] = useState([]);
   const [form, setForm] = useState({ title: "", amount: "", category: "" });
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [filters, setFilters] = useState({ start: "", end: "" });
-  const [jalaliFilters, setJalaliFilters] = useState({ start: "", end: "" });
+  const [range, setRange] = useState("week");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -42,23 +45,23 @@ export default function FinancePage() {
     try {
       const token = getToken();
       if (!token) {
-        setError("برای مشاهده گزارش مالی باید وارد شوید.");
+        setError(t("loginRequired"));
         setLoading(false);
         return;
       }
       const params = { start: nextFilters?.start ?? filters.start, end: nextFilters?.end ?? filters.end };
-      const [r, m, e, inv] = await Promise.all([
+      const [r, e, inv, svc] = await Promise.all([
         getFinanceReport(token, params),
-        getFinanceMonthly(token, params),
         getExpenses(token, params),
         getInvoices(token),
+        getServices(token),
       ]);
       setReport(r);
-      setMonthly(m);
       setExpenses(e);
       setInvoices(inv);
+      setServices(svc);
     } catch (e) {
-      setError("خطا در دریافت اطلاعات مالی");
+      setError(t("errorFinanceLoad") || "خطا در دریافت اطلاعات مالی");
     } finally {
       setLoading(false);
     }
@@ -66,6 +69,12 @@ export default function FinancePage() {
 
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    if (!filters.start && !filters.end) {
+      applyQuickFilter("week");
+    }
   }, []);
 
   useEffect(() => {
@@ -82,7 +91,7 @@ export default function FinancePage() {
     try {
       const token = getToken();
       if (!token) {
-        setError("ابتدا وارد شوید");
+        setError(t("loginRequired"));
         return;
       }
       await createExpense(
@@ -95,30 +104,32 @@ export default function FinancePage() {
       );
       setForm({ title: "", amount: "", category: "" });
       setShowExpenseModal(false);
-      setSuccess("هزینه با موفقیت ثبت شد.");
+      const msg = t("expenseSaved") || "هزینه با موفقیت ثبت شد.";
+      setSuccess(msg);
+      showToast(msg);
       load();
     } catch (e) {
-      setError("ثبت هزینه ناموفق بود");
+      setError(t("expenseSaveError") || "ثبت هزینه ناموفق بود");
     } finally {
       setBusy(false);
     }
   }
 
   async function onDeleteExpense(id) {
-    const confirmDelete = typeof window !== "undefined" ? window.confirm("آیا از حذف این هزینه مطمئن هستید؟") : true;
+    const confirmDelete = typeof window !== "undefined" ? window.confirm(t("confirmDeleteExpense") || "آیا از حذف این هزینه مطمئن هستید؟") : true;
     if (!confirmDelete) return;
     setBusy(true);
     try {
       const token = getToken();
       if (!token) {
-        setError("ابتدا وارد شوید");
+        setError(t("loginRequired"));
         return;
       }
       await deleteExpense(id, token);
-      setSuccess("هزینه حذف شد.");
+      setSuccess(t("expenseDeleted") || "هزینه حذف شد.");
       load();
     } catch (e) {
-      setError("حذف هزینه ناموفق بود");
+      setError(t("expenseDeleteError") || "حذف هزینه ناموفق بود");
     } finally {
       setBusy(false);
     }
@@ -128,7 +139,7 @@ export default function FinancePage() {
     try {
       const token = getToken();
       if (!token) {
-        setError("ابتدا وارد شوید");
+        setError(t("loginRequired"));
         return;
       }
       const params = new URLSearchParams();
@@ -148,8 +159,154 @@ export default function FinancePage() {
       a.click();
       window.URL.revokeObjectURL(url);
     } catch (e) {
-      setError("دانلود PDF ناموفق بود");
+      setError(t("pdfDownloadFailed") || "دانلود PDF ناموفق بود. نسخه چاپی باز شد؛ برای ذخیره PDF از گزینه Print استفاده کنید.");
+      onPrintReport();
     }
+  }
+
+  function onBackupData() {
+    if (typeof window === "undefined") return;
+    const payload = {
+      version: 1,
+      exported_at: new Date().toISOString(),
+      invoices,
+      expenses,
+    };
+    localStorage.setItem("backup_invoices", JSON.stringify(invoices));
+    localStorage.setItem("backup_expenses", JSON.stringify(expenses));
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "backup-invoices-expenses.json";
+    a.click();
+    window.URL.revokeObjectURL(url);
+  }
+
+  async function onImportData(file) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const token = getToken();
+      if (!token) {
+        setError(t("loginRequired"));
+        return;
+      }
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const importExpenses = Array.isArray(data?.expenses) ? data.expenses : [];
+      const importInvoices = Array.isArray(data?.invoices) ? data.invoices : [];
+
+      const normalize = (val) => String(val || "").trim().toLowerCase();
+      const expenseKey = (exp) =>
+        [
+          normalize(exp.title),
+          normalize(exp.category),
+          Number(exp.amount || 0),
+          normalize(exp.date),
+        ].join("|");
+      const invoiceItemKey = (it) =>
+        [
+          normalize(it.service_name || it.service),
+          Number(it.quantity || 0),
+          Number(it.price || 0),
+        ].join("|");
+      const invoiceKey = (inv) =>
+        [
+          normalize(inv.customer_name),
+          Number(inv.total_amount || 0),
+          normalize(inv.created_at),
+          (inv.items || []).map(invoiceItemKey).join(","),
+        ].join("|");
+
+      const existingExpenseKeys = new Set(expenses.map(expenseKey));
+      const existingInvoiceKeys = new Set(invoices.map(invoiceKey));
+      const duplicateExpenses = importExpenses.filter((e) => existingExpenseKeys.has(expenseKey(e)));
+      const duplicateInvoices = importInvoices.filter((i) => existingInvoiceKeys.has(invoiceKey(i)));
+
+      let expensesToImport = importExpenses;
+      let invoicesToImport = importInvoices;
+      if (duplicateExpenses.length || duplicateInvoices.length) {
+        const message =
+          (t("importDuplicates") || "دیتاهای تکراری یافت شد.") +
+          `\n` +
+          (t("duplicateExpenses") || "مصارف تکراری") +
+          `: ${duplicateExpenses.length}\n` +
+          (t("duplicateInvoices") || "بل‌های تکراری") +
+          `: ${duplicateInvoices.length}\n\n` +
+          (t("importAllConfirm") || "آیا می‌خواهید همه را ایمپورت کنم؟") +
+          `\n` +
+          (t("importSkipDuplicates") || "اگر خیر بزنید، داده‌های تکراری وارد نمی‌شوند.");
+        const ok = window.confirm(message);
+        if (!ok) {
+          const dupExpenseKeys = new Set(duplicateExpenses.map(expenseKey));
+          const dupInvoiceKeys = new Set(duplicateInvoices.map(invoiceKey));
+          expensesToImport = importExpenses.filter((e) => !dupExpenseKeys.has(expenseKey(e)));
+          invoicesToImport = importInvoices.filter((i) => !dupInvoiceKeys.has(invoiceKey(i)));
+        }
+      }
+
+      for (const exp of expensesToImport) {
+        if (!exp?.title || !exp?.amount) continue;
+        await createExpense(
+          {
+            title: exp.title,
+            category: exp.category || "",
+            amount: Number(exp.amount || 0),
+          },
+          token
+        );
+      }
+
+      const serviceById = new Map(services.map((s) => [String(s.id), s]));
+      const serviceByName = new Map(services.map((s) => [String(s.name || "").trim().toLowerCase(), s]));
+      for (const inv of invoicesToImport) {
+        const items = (inv.items || []).map((item) => {
+          const id = String(item.service || "");
+          const byId = serviceById.get(id);
+          const byName = serviceByName.get(String(item.service_name || "").trim().toLowerCase());
+          const svc = byId || byName;
+          if (!svc) return null;
+          return {
+            service: Number(svc.id),
+            quantity: Number(item.quantity || 0),
+            price: Number(item.price || 0),
+          };
+        }).filter(Boolean);
+        if (!items.length) continue;
+        await createInvoice(
+          { customer_name: inv.customer_name || "-", items },
+          token
+        );
+      }
+
+      if (!expensesToImport.length && !invoicesToImport.length) {
+        setSuccess(t("importNone"));
+      } else {
+        setSuccess(t("importSuccess"));
+      }
+      load();
+    } catch (e) {
+      setError(t("importFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function applyQuickFilter(nextRange) {
+    const now = new Date();
+    const end = now.toISOString().slice(0, 10);
+    const startDate = new Date(now);
+    if (nextRange === "day") startDate.setDate(now.getDate() - 1);
+    if (nextRange === "week") startDate.setDate(now.getDate() - 7);
+    if (nextRange === "month") startDate.setMonth(now.getMonth() - 1);
+    const start = startDate.toISOString().slice(0, 10);
+    const next = { start, end };
+    setRange(nextRange);
+    setFilters(next);
+    load(next);
   }
 
   function filterByDate(list, dateKey) {
@@ -169,6 +326,23 @@ export default function FinancePage() {
     const printableInvoices = filterByDate(invoices, "created_at");
     const win = window.open("", "_blank", "width=900,height=700");
     if (!win) return;
+
+    const reportTitle = t("reportTitle") || "گزارش مالی";
+    const reportSubtitle = t("reportSubtitle") || "گزارش مالی کارخانه نجاری";
+    const startLabel = t("startDateLabel") || "تاریخ شروع";
+    const endLabel = t("endDateLabel") || "تاریخ پایان";
+    const invoicesLabel = t("invoicesLabel") || "بل‌ها";
+    const expensesLabel = t("expensesLabel") || "مصارف";
+    const customerLabel = t("customerLabel") || "مشتری";
+    const dateLabel = t("dateLabel") || "تاریخ";
+    const amountLabel = t("amountLabel") || "مبلغ";
+    const descLabel = t("descLabel") || "شرح";
+    const categoryLabel = t("categoryLabel") || "دسته";
+    const noInvoicesPrint = t("noInvoicesPrint") || "بلی ثبت نشده است.";
+    const noExpensesPrint = t("noExpensesPrint") || "مصرفی ثبت نشده است.";
+    const salesLabel = t("sales") || "فروشات";
+    const expenseLabel = t("expense") || "مصارف";
+    const netProfitLabel = t("netProfit") || "سود خالص";
 
     const rowsExpenses = printableExpenses
       .map(
@@ -202,7 +376,7 @@ export default function FinancePage() {
       <html lang="fa" dir="rtl">
         <head>
           <meta charset="utf-8" />
-          <title>گزارش مالی</title>
+          <title>${reportTitle}</title>
           <style>
             body { font-family: Tahoma, Arial, sans-serif; padding: 24px; color: #0f172a; }
             h1 { font-size: 20px; margin: 0 0 12px; }
@@ -216,27 +390,27 @@ export default function FinancePage() {
           </style>
         </head>
         <body>
-          <h1>گزارش مالی کارخانه نجاری</h1>
+          <h1>${reportSubtitle}</h1>
           <div class="meta">
-            <div>تاریخ شروع: ${formatPersianDate(filters.start) || "-"}</div>
-            <div>تاریخ پایان: ${formatPersianDate(filters.end) || "-"}</div>
+            <div>${startLabel}: ${formatPersianDate(filters.start) || "-"}</div>
+            <div>${endLabel}: ${formatPersianDate(filters.end) || "-"}</div>
           </div>
           <div class="summary">
-            <div class="box">فروشات: AFN ${Number(report.total_sales || 0).toLocaleString("fa-AF")}</div>
-            <div class="box">مصارف: AFN ${Number(report.total_expenses || 0).toLocaleString("fa-AF")}</div>
-            <div class="box">سود خالص: AFN ${Number(report.profit || 0).toLocaleString("fa-AF")}</div>
+            <div class="box">${salesLabel}: افغانی ${Number(report.total_sales || 0).toLocaleString("fa-AF")}</div>
+            <div class="box">${expenseLabel}: افغانی ${Number(report.total_expenses || 0).toLocaleString("fa-AF")}</div>
+            <div class="box">${netProfitLabel}: افغانی ${Number(report.profit || 0).toLocaleString("fa-AF")}</div>
           </div>
 
-          <h2>فاکتورها</h2>
+          <h2>${invoicesLabel}</h2>
           <table>
-            <thead><tr><th>#</th><th>مشتری</th><th>تاریخ</th><th>مبلغ</th></tr></thead>
-            <tbody>${rowsInvoices || "<tr><td colspan='4'>فاکتوری ثبت نشده است.</td></tr>"}</tbody>
+            <thead><tr><th>#</th><th>${customerLabel}</th><th>${dateLabel}</th><th>${amountLabel}</th></tr></thead>
+            <tbody>${rowsInvoices || `<tr><td colspan='4'>${noInvoicesPrint}</td></tr>`}</tbody>
           </table>
 
-          <h2>مصارف</h2>
+          <h2>${expensesLabel}</h2>
           <table>
-            <thead><tr><th>#</th><th>شرح</th><th>دسته</th><th>تاریخ</th><th>مبلغ</th></tr></thead>
-            <tbody>${rowsExpenses || "<tr><td colspan='5'>مصرفی ثبت نشده است.</td></tr>"}</tbody>
+            <thead><tr><th>#</th><th>${descLabel}</th><th>${categoryLabel}</th><th>${dateLabel}</th><th>${amountLabel}</th></tr></thead>
+            <tbody>${rowsExpenses || `<tr><td colspan='5'>${noExpensesPrint}</td></tr>`}</tbody>
           </table>
 
           <script>window.focus(); window.print();</script>
@@ -246,21 +420,16 @@ export default function FinancePage() {
     win.document.close();
   }
 
-  const maxMonthly = useMemo(() => {
-    const values = monthly.flatMap((m) => [Number(m.income || 0), Number(m.expense || 0)]);
-    return Math.max(1, ...values);
-  }, [monthly]);
-
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="h-16 rounded-3xl bg-white/5 animate-pulse" />
+        <div className="h-16 rounded-3xl bg-[var(--card-bg)]/50 animate-pulse" />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="h-24 rounded-3xl bg-white/5 animate-pulse" />
-          <div className="h-24 rounded-3xl bg-white/5 animate-pulse" />
-          <div className="h-24 rounded-3xl bg-white/5 animate-pulse" />
+          <div className="h-24 rounded-3xl bg-[var(--card-bg)]/50 animate-pulse" />
+          <div className="h-24 rounded-3xl bg-[var(--card-bg)]/50 animate-pulse" />
+          <div className="h-24 rounded-3xl bg-[var(--card-bg)]/50 animate-pulse" />
         </div>
-        <div className="h-56 rounded-3xl bg-white/5 animate-pulse" />
+        <div className="h-56 rounded-3xl bg-[var(--card-bg)]/50 animate-pulse" />
       </div>
     );
   }
@@ -269,21 +438,37 @@ export default function FinancePage() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold">دفتر ثبت هزینه‌ها و گزارش مالی</h2>
-          <p className="text-xs text-gray-400 mt-1">تحلیل سریع فروشات، مصارف و فاکتورها</p>
+          <h2 className="text-xl font-bold">{t("financeTitle")}</h2>
+          <p className="text-xs text-gray-400 mt-1">{t("reportsTitle")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setShowExpenseModal(true)}
             className="bg-rose-500/80 hover:bg-rose-500 text-white font-bold px-4 py-2 rounded-full"
           >
-            ثبت هزینه جدید
+            {t("newExpense")}
           </button>
+          <button
+            onClick={onBackupData}
+            className="bg-[var(--panel-bg)] hover:bg-black/5 text-[var(--app-text)] font-bold px-4 py-2 rounded-full border border-[var(--border-color)]"
+          >
+            {t("backup")}
+          </button>
+          <label className="bg-[var(--panel-bg)] hover:bg-black/5 text-[var(--app-text)] font-bold px-4 py-2 rounded-full border border-[var(--border-color)] cursor-pointer">
+            {t("import")}
+            <input
+              type="file"
+              accept="application/json"
+              className="hidden"
+              onChange={(e) => onImportData(e.target.files?.[0])}
+              disabled={busy}
+            />
+          </label>
           <button
             onClick={onPrintReport}
             className="bg-slate-200/90 hover:bg-white text-black font-bold px-4 py-2 rounded-full"
           >
-            چاپ گزارش
+            {t("printReport")}
           </button>
         </div>
       </div>
@@ -300,118 +485,76 @@ export default function FinancePage() {
       )}
 
       <Card>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
           <div>
-            <label className="block text-sm mb-1 text-gray-400">از تاریخ (هجری شمسی)</label>
-            <input
-              type="text"
-              className="w-full bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
-              placeholder="1404/11/04"
-              value={jalaliFilters.start}
-              onChange={(e) => setJalaliFilters({ ...jalaliFilters, start: e.target.value })}
-            />
-            {filters.start && (
-              <div className="mt-1 text-[11px] text-gray-500">میلادی: {filters.start}</div>
-            )}
+            <label className="block text-sm mb-1 text-[var(--muted)]">{t("financeFilter")}</label>
+            <select
+              className="w-full bg-[var(--panel-bg)] border border-[var(--border-color)] rounded-full px-3 py-2 outline-none"
+              value={range}
+              onChange={(e) => applyQuickFilter(e.target.value)}
+            >
+              <option value="day">{t("oneDay")}</option>
+              <option value="week">{t("oneWeek")}</option>
+              <option value="month">{t("oneMonth")}</option>
+            </select>
           </div>
-          <div>
-            <label className="block text-sm mb-1 text-gray-400">تا تاریخ (هجری شمسی)</label>
-            <input
-              type="text"
-              className="w-full bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
-              placeholder="1404/11/04"
-              value={jalaliFilters.end}
-              onChange={(e) => setJalaliFilters({ ...jalaliFilters, end: e.target.value })}
-            />
-            {filters.end && (
-              <div className="mt-1 text-[11px] text-gray-500">میلادی: {filters.end}</div>
-            )}
-          </div>
-          <button
-            onClick={applyJalaliFilters}
-            className="bg-sky-500/80 hover:bg-sky-500 text-black font-bold px-4 py-2 rounded-full"
-          >
-            اعمال فیلتر
-          </button>
+          <div className="text-xs text-[var(--muted)]">{t("fromDate")}: {formatPersianDate(filters.start)}</div>
+          <div className="text-xs text-[var(--muted)]">{t("toDate")}: {formatPersianDate(filters.end)}</div>
           <button
             onClick={onDownloadPdf}
             className="bg-amber-400 hover:bg-amber-300 text-black font-bold px-4 py-2 rounded-full"
           >
-            خروجی PDF
+            {t("downloadPdf")}
           </button>
-          <div className="text-xs text-gray-400">فیلتر روی فروشات، مصارف و فاکتورها اعمال می‌شود.</div>
         </div>
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
-          <p className="text-sm text-gray-400">درآمد کل</p>
-          <p className="text-2xl font-extrabold text-emerald-400 mt-2">AFN {Number(report.total_sales || 0).toLocaleString("fa-AF")}</p>
+          <p className="text-sm text-gray-400">{t("totalIncome")}</p>
+          <p className="text-2xl font-extrabold text-emerald-400 mt-2">?? {Number(report.total_sales || 0).toLocaleString("fa-AF")}</p>
         </Card>
         <Card>
-          <p className="text-sm text-gray-400">هزینه‌ها</p>
-          <p className="text-2xl font-extrabold text-rose-400 mt-2">AFN {Number(report.total_expenses || 0).toLocaleString("fa-AF")}</p>
+          <p className="text-sm text-gray-400">{t("totalExpense")}</p>
+          <p className="text-2xl font-extrabold text-rose-400 mt-2">?? {Number(report.total_expenses || 0).toLocaleString("fa-AF")}</p>
         </Card>
         <Card>
-          <p className="text-sm text-gray-400">سود خالص</p>
-          <p className="text-2xl font-extrabold text-amber-300 mt-2">AFN {Number(report.profit || 0).toLocaleString("fa-AF")}</p>
+          <p className="text-sm text-gray-400">{t("netProfit") || t("profit")}</p>
+          <p className="text-2xl font-extrabold text-amber-300 mt-2">?? {Number(report.profit || 0).toLocaleString("fa-AF")}</p>
         </Card>
       </div>
 
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">گزارش ماهانه</h3>
-          <span className="text-xs text-gray-400">۱۲ ماه اخیر</span>
-        </div>
-        <div className="grid grid-cols-12 gap-2 items-end h-44">
-          {monthly.map((m) => {
-            const incomeHeight = Math.round((Number(m.income || 0) / maxMonthly) * 100);
-            const expenseHeight = Math.round((Number(m.expense || 0) / maxMonthly) * 100);
-            return (
-              <div key={m.label} className="flex flex-col items-center gap-2">
-                <div className="w-4 bg-emerald-500/60 rounded-t" style={{ height: `${incomeHeight}%` }} title={`درآمد: ${m.income}`}></div>
-                <div className="w-4 bg-rose-500/60 rounded-t" style={{ height: `${expenseHeight}%` }} title={`هزینه: ${m.expense}`}></div>
-                <div className="text-[10px] text-gray-400">{m.label}</div>
-              </div>
-            );
-          })}
-          {monthly.length === 0 && (
-            <div className="col-span-12 text-sm text-gray-500">داده‌ای برای نمایش وجود ندارد.</div>
-          )}
-        </div>
-      </Card>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="border-amber-400/20">
-          <h3 className="font-semibold mb-4 text-amber-300">راهنمای عملیات مالی</h3>
+          <h3 className="font-semibold mb-4 text-amber-300">{t("financeGuideTitle")}</h3>
           <div className="text-sm text-gray-400 space-y-2">
-            <p>برای ثبت هزینه جدید، روی «ثبت هزینه جدید» کلیک کنید و دسته‌بندی را مشخص نمایید.</p>
-            <p>با فیلتر تاریخ می‌توانید گزارش کامل فروشات، مصارف و فاکتورها را دریافت کنید.</p>
-            <p>برای چاپ گزارش، از دکمه «چاپ گزارش» استفاده کنید.</p>
+            <p>{t("financeGuide1")}</p>
+            <p>{t("financeGuide2")}</p>
+            <p>{t("financeGuide3")}</p>
           </div>
         </Card>
 
         <Card>
-          <h3 className="font-semibold mb-4">لیست هزینه‌های جاری کارگاه</h3>
+          <h3 className="font-semibold mb-4">{t("expensesListTitle")}</h3>
           <div className="space-y-3 max-h-72 overflow-y-auto">
             {expenses.map((exp) => (
-              <div key={exp.id} className="flex items-center justify-between bg-[#0b1220] border border-[#1d2a47] rounded-2xl px-4 py-3">
+              <div key={exp.id} className="flex items-center justify-between bg-[var(--panel-bg)] border border-[var(--border-color)] rounded-2xl px-4 py-3">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-300 flex items-center justify-center">
                     -
                   </div>
                   <div>
-                    <p className="text-sm text-gray-200">{exp.title}</p>
-                    <p className="text-xs text-gray-500">{exp.category || "متفرقه"} • {formatDate(exp.date)}</p>
+                    <p className="text-sm">{exp.title}</p>
+                    <p className="text-xs text-[var(--muted)]">{exp.category || t("misc")} • {formatDate(exp.date)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-rose-300">AFN {Number(exp.amount || 0).toLocaleString("fa-AF")}</span>
+                  <span className="text-rose-300">?? {Number(exp.amount || 0).toLocaleString("fa-AF")}</span>
                   <button onClick={() => onDeleteExpense(exp.id)} className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-red-300">×</button>
                 </div>
               </div>
             ))}
-            {expenses.length === 0 && <div className="text-gray-500 text-sm">هزینه‌ای ثبت نشده است.</div>}
+            {expenses.length === 0 && <div className="text-[var(--muted)] text-sm">{t("noExpenses")}</div>}
           </div>
         </Card>
       </div>
@@ -420,7 +563,7 @@ export default function FinancePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-[28px] bg-[#0f172a] border border-white/10 shadow-2xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-amber-300">ثبت هزینه جدید کارگاه</h3>
+              <h3 className="font-semibold text-amber-300">{t("newExpenseTitle")}</h3>
               <button
                 onClick={() => setShowExpenseModal(false)}
                 className="w-8 h-8 rounded-full bg-white/10 text-gray-400"
@@ -431,29 +574,30 @@ export default function FinancePage() {
             <form onSubmit={onCreateExpense} className="space-y-3">
               <input
                 className="w-full bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
-                placeholder="شرح هزینه"
+                placeholder={t("expenseDescPlaceholder")}
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
               />
               <input
                 className="w-full bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
-                placeholder="دسته‌بندی"
+                placeholder={t("expenseCategoryPlaceholder")}
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
               />
               <input
                 className="w-full bg-[#0b1220] border border-gray-700 rounded-full px-3 py-2 outline-none"
-                placeholder="مبلغ (AFN)"
+                placeholder={t("expenseAmountPlaceholder")}
                 type="number"
                 value={form.amount}
                 onChange={(e) => setForm({ ...form, amount: e.target.value })}
               />
               <button
-                className="w-full bg-rose-500/90 hover:bg-rose-500 text-white font-bold px-4 py-2 rounded-full"
+                className="w-full bg-rose-500/90 hover:bg-rose-500 text-white font-bold px-4 py-2 rounded-full flex items-center justify-center gap-2"
                 type="submit"
                 disabled={busy}
               >
-                {busy ? "در حال ثبت..." : "ثبت نهایی"}
+                {busy && <span className="spinner" />}
+                {busy ? t("saving") : t("submitFinal")}
               </button>
             </form>
           </div>
@@ -462,18 +606,3 @@ export default function FinancePage() {
     </div>
   );
 }
-  function applyJalaliFilters() {
-    const gStart = jalaliFilters.start ? parseJalaliToGregorian(jalaliFilters.start) : "";
-    const gEnd = jalaliFilters.end ? parseJalaliToGregorian(jalaliFilters.end) : "";
-    if (jalaliFilters.start && !gStart) {
-      setError("فرمت تاریخ شروع درست نیست. نمونه: 1404/11/04");
-      return;
-    }
-    if (jalaliFilters.end && !gEnd) {
-      setError("فرمت تاریخ پایان درست نیست. نمونه: 1404/11/04");
-      return;
-    }
-    const next = { start: gStart || "", end: gEnd || "" };
-    setFilters(next);
-    load(next);
-  }

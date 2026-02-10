@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getInvoices, getServices } from "@/lib/api";
 import { formatPersianDate } from "@/lib/date";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 function PencilIcon({ className = "" }) {
   return (
@@ -22,6 +23,7 @@ function BadgeIcon({ className = "" }) {
 }
 
 export default function ServiceSection({ title, tag }) {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [invoices, setInvoices] = useState([]);
@@ -39,7 +41,7 @@ export default function ServiceSection({ title, tag }) {
       try {
         const token = getToken();
         if (!token) {
-          setError("برای مشاهده خدمات ابتدا وارد شوید.");
+          setError(t("loginRequired"));
           setLoading(false);
           return;
         }
@@ -47,7 +49,7 @@ export default function ServiceSection({ title, tag }) {
         setInvoices(inv);
         setServices(svc);
       } catch (e) {
-        setError("خطا در دریافت اطلاعات خدمات");
+        setError(t("errorServiceLoad") || "خطا در دریافت اطلاعات خدمات");
       } finally {
         setLoading(false);
       }
@@ -77,7 +79,7 @@ export default function ServiceSection({ title, tag }) {
     return list;
   }, [invoices, serviceMap, normalizedTag]);
 
-  const unitLabel = normalizedTag === "cutting" ? "تخته" : "متر";
+  const unitLabel = normalizedTag === "cutting" ? t("boardUnit") || "تخته" : t("meterUnit") || "متر";
 
   return (
     <div className="space-y-6">
@@ -90,13 +92,13 @@ export default function ServiceSection({ title, tag }) {
         </div>
         <div className="flex items-center gap-2">
           <a href="/services" className="px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 text-gray-200">
-            بازگشت
+            {t("back")}
           </a>
           <a
             href={`/invoices?service=${encodeURIComponent(tag || title || "")}`}
             className="bg-amber-400/90 hover:bg-amber-400 text-black font-bold px-4 py-2 rounded-full"
           >
-            + فاکتور جدید
+            + {t("newInvoice")}
           </a>
         </div>
       </div>
@@ -109,31 +111,31 @@ export default function ServiceSection({ title, tag }) {
 
       {loading ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="rounded-3xl bg-[#0e1627] border border-white/5 p-6 shadow-2xl h-48 animate-pulse" />
-          <div className="rounded-3xl bg-[#0e1627] border border-white/5 p-6 shadow-2xl h-48 animate-pulse" />
+          <div className="rounded-3xl bg-[var(--card-bg)] border border-[var(--border-color)] p-6 shadow-2xl h-48 animate-pulse" />
+          <div className="rounded-3xl bg-[var(--card-bg)] border border-[var(--border-color)] p-6 shadow-2xl h-48 animate-pulse" />
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {items.map((card, idx) => (
-          <div key={`${card.invoiceId}-${idx}`} className="rounded-3xl bg-[#0e1627] border border-[#121a2c] p-6 shadow-2xl">
+          <div key={`${card.invoiceId}-${idx}`} className="rounded-3xl bg-[var(--card-bg)] border border-[var(--border-color)] p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <div className="text-xs text-amber-300 bg-amber-400/10 px-3 py-1 rounded-full">ID: #{card.invoiceId}</div>
-              <a href={`/invoices?edit=${card.invoiceId}`} className="w-9 h-9 rounded-full bg-white/5 text-amber-300 flex items-center justify-center" title="ویرایش فاکتور">
+              <a href={`/invoices?edit=${card.invoiceId}`} className="w-9 h-9 rounded-full bg-white/5 text-amber-300 flex items-center justify-center" title={t("invoiceEdit")}>
                 <PencilIcon className="w-4 h-4" />
               </a>
             </div>
             <div className="text-lg font-bold text-gray-100">{card.customer}</div>
-            <div className="text-xs text-gray-500 mt-1">سرویس: {tag}</div>
+            <div className="text-xs text-[var(--muted)] mt-1">{t("serviceTag")}: {tag}</div>
 
-            <div className="grid grid-cols-3 gap-2 mt-4 text-xs text-gray-400">
+            <div className="grid grid-cols-3 gap-2 mt-4 text-xs text-[var(--muted)]">
               <div>{unitLabel}: {card.qty}</div>
-              <div>فی واحد: {card.unit}</div>
-              <div className="text-rose-300">تخفیف: 0</div>
+              <div>{t("unitPrice")}: {card.unit}</div>
+              <div className="text-rose-300">{t("discount")}: 0</div>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between">
-              <div className="text-amber-300 font-bold">AFN {card.total.toLocaleString("fa-AF")}</div>
-              <div className="flex items-center gap-2 text-xs text-gray-500">
+            <div className="mt-4 pt-3 border-t border-[var(--border-color)] flex items-center justify-between">
+              <div className="text-amber-300 font-bold">?? {card.total.toLocaleString("fa-AF")}</div>
+              <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
                 <BadgeIcon className="w-4 h-4" />
                 {formatPersianDate(card.date)}
               </div>
@@ -141,7 +143,7 @@ export default function ServiceSection({ title, tag }) {
           </div>
         ))}
         {items.length === 0 && !error && (
-          <div className="col-span-full text-center text-gray-500">برای این سرویس هنوز آیتمی ثبت نشده است.</div>
+          <div className="col-span-full text-center text-gray-500">{t("noServiceItems")}</div>
         )}
       </div>
       )}

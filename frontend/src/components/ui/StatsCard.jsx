@@ -5,7 +5,7 @@ export default function StatsCard({ title, value }) {
       <div>
         <p className="text-sm text-gray-400">{title}</p>
         <p className="text-xl font-bold text-yellow-400 mt-1">
-          AFN {value?.toLocaleString()}
+          ?? {value?.toLocaleString()}
         </p>
       </div>
 
