@@ -16,13 +16,12 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    "corsheaders",
     "api",
     'core',
     'finance',
     'products',
     'invoices',
-    
+    'corsheaders',
     'rest_framework.authtoken',
 ]
 
@@ -34,6 +33,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+
 ]
 
 ROOT_URLCONF = "backend.urls"
