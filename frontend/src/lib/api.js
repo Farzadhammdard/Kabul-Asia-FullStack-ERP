@@ -19,7 +19,7 @@ function buildQuery(params = {}) {
 export async function getFinanceSummary(token) {
   try {
     const res = await fetch(`${API_BASE}/invoices/summary/`, {
-      cache: "no-store",
+      cache: "no-cache",
       headers: authHeaders(token),
     });
 
@@ -44,7 +44,7 @@ export async function getFinanceSummary(token) {
 // Invoices CRUD
 export async function getInvoices(token) {
   try {
-    const res = await fetch(`${API_BASE}/invoices/`, { cache: "no-store", headers: authHeaders(token) });
+    const res = await fetch(`${API_BASE}/invoices/`, { cache: "no-cache", headers: authHeaders(token) });
     if (!res.ok) return [];
     return await res.json();
   } catch {
@@ -53,7 +53,7 @@ export async function getInvoices(token) {
 }
 
 export async function getInvoice(id, token) {
-  const res = await fetch(`${API_BASE}/invoices/${id}/`, { cache: "no-store", headers: authHeaders(token) });
+  const res = await fetch(`${API_BASE}/invoices/${id}/`, { cache: "no-cache", headers: authHeaders(token) });
   if (!res.ok) throw new Error("Failed to load invoice");
   return res.json();
 }
@@ -197,7 +197,7 @@ export async function updateCompanySettings(payload, token) {
 
 // Products
 export async function getProducts(token) {
-  const res = await fetch(`${API_BASE}/products/`, { headers: authHeaders(token), cache: "no-store" });
+  const res = await fetch(`${API_BASE}/products/`, { headers: authHeaders(token), cache: "no-cache" });
   if (!res.ok) return [];
   return res.json();
 }
@@ -234,7 +234,7 @@ export async function deleteProduct(id, token) {
 // Finance
 export async function getFinanceReport(token, params) {
   const qs = buildQuery(params);
-  const res = await fetch(`${API_BASE}/finance/report/${qs}`, { headers: authHeaders(token), cache: "no-store" });
+  const res = await fetch(`${API_BASE}/finance/report/${qs}`, { headers: authHeaders(token), cache: "no-cache" });
   if (!res.ok) {
     return { total_sales: 0, total_expenses: 0, profit: 0, total_invoices: 0, top_products: [] };
   }
@@ -243,14 +243,14 @@ export async function getFinanceReport(token, params) {
 
 export async function getFinanceMonthly(token, params) {
   const qs = buildQuery(params);
-  const res = await fetch(`${API_BASE}/finance/monthly/${qs}`, { headers: authHeaders(token), cache: "no-store" });
+  const res = await fetch(`${API_BASE}/finance/monthly/${qs}`, { headers: authHeaders(token), cache: "no-cache" });
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function getExpenses(token, params) {
   const qs = buildQuery(params);
-  const res = await fetch(`${API_BASE}/finance/expenses/${qs}`, { headers: authHeaders(token), cache: "no-store" });
+  const res = await fetch(`${API_BASE}/finance/expenses/${qs}`, { headers: authHeaders(token), cache: "no-cache" });
   if (!res.ok) return [];
   return res.json();
 }
@@ -276,7 +276,7 @@ export async function deleteExpense(id, token) {
 
 // Projects (gallery + uploads)
 export async function getProjects(token) {
-  const res = await fetch(`${API_BASE}/projects/`, { headers: authHeaders(token), cache: "no-store" });
+  const res = await fetch(`${API_BASE}/projects/`, { headers: authHeaders(token), cache: "no-cache" });
   if (!res.ok) return [];
   return res.json();
 }
@@ -302,7 +302,7 @@ export async function deleteProject(id, token) {
 
 // Services
 export async function getServices(token) {
-  const res = await fetch(`${API_BASE}/services/`, { headers: authHeaders(token), cache: "no-store" });
+  const res = await fetch(`${API_BASE}/services/`, { headers: authHeaders(token), cache: "no-cache" });
   if (!res.ok) return [];
   return res.json();
 }
@@ -338,7 +338,7 @@ export async function deleteService(id, token) {
 
 // Employees (students)
 export async function getEmployees(token) {
-  const res = await fetch(`${API_BASE}/employees/`, { headers: authHeaders(token), cache: "no-store" });
+  const res = await fetch(`${API_BASE}/employees/`, { headers: authHeaders(token), cache: "no-cache" });
   if (!res.ok) return [];
   return res.json();
 }
