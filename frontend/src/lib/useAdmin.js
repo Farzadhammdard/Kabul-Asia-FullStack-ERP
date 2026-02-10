@@ -10,9 +10,8 @@ export function useAdmin() {
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
     const cached = typeof window !== "undefined" ? localStorage.getItem("is_staff") : null;
-    const username = typeof window !== "undefined" ? localStorage.getItem("username") : "";
 
-    if (cached === "true" || username === "ali") {
+    if (cached === "true") {
       setIsAdmin(true);
     }
 
@@ -28,8 +27,8 @@ export function useAdmin() {
     }
 
     getCurrentUser(token)
-      .then((u) => setIsAdmin(Boolean(u?.is_staff) || cached === "true" || username === "ali"))
-      .catch(() => setIsAdmin(cached === "true" || username === "ali"))
+      .then((u) => setIsAdmin(Boolean(u?.is_staff)))
+      .catch(() => setIsAdmin(cached === "true"))
       .finally(() => setLoading(false));
   }, []);
 

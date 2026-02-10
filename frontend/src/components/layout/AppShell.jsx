@@ -89,7 +89,7 @@ export default function AppShell({ children }) {
   }
   if (!mounted || !authReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center" suppressHydrationWarning>Ø¯Ø± Ø­Ø§Ù„ Ø¨Ø§Ø±Ú¯Ø°Ø§Ø±ÛŒ...</div>
+      <div className="min-h-screen flex items-center justify-center" suppressHydrationWarning>در حال بارگذاری...</div>
     );
   }
 
