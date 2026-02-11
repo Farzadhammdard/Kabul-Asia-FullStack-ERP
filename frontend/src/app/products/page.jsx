@@ -36,7 +36,14 @@ export default function ProductsPage() {
         return;
       }
       const data = await getProducts(token);
-      setProducts(data);
+
+      if (Array.isArray(data)) {
+        setProducts(data);
+      } else if (data?.results) {
+        setProducts(data.results);
+      } else {
+        setProducts([]);
+      }
     } catch (e) {
       setError("خطا در دریافت محصولات");
     } finally {
@@ -202,7 +209,7 @@ export default function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => (
+              {products?.map((p) => (
                 <tr key={p.id} className="border-b border-gray-800">
                   <td className="p-2">{p.id}</td>
                   <td className="p-2">{p.name}</td>
